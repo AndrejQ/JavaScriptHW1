@@ -5,24 +5,22 @@ class LazyGraph {
 			var args = func.toString().match(/\(([^)]*)\)/)[1];
 			return args.split(',').map(function(arg) {
 				return arg.replace(/\/\*.*\*\//, '').trim();
-			}).filter(function(arg) {
-				return arg;
-			});
+			}).filter(Boolean);
 		}
 		// creating graphs for estimation support
 		// {vertex : function}
 		this.graph = graph;
 		// graph with answers = {vertex : answer}
-		this.ans_graph = Object.assign({}, graph);
+		this.ansGraph = {...graph};
 		// graph with arguments of corresponding functions {vertex : [conected vertices keys]}
-		this.args_graph = Object.assign({}, graph);
+		this.argsGraph = {...graph};
 		for (var prop in this.graph) {
-			this.args_graph[prop] = getArgs(this.graph[prop]);
+			this.argsGraph[prop] = getArgs(this.graph[prop]);
 			// assigning vertex value if function has no param
-			if (this.args_graph[prop].length == 0){
-				this.ans_graph[prop] = this.graph[prop]();
+			if (this.argsGraph[prop].length == 0){
+				this.ansGraph[prop] = this.graph[prop]();
 			} else {
-				this.ans_graph[prop] = undefined;
+				this.ansGraph[prop] = undefined;
 			}
 		}
 		return this;
@@ -30,37 +28,60 @@ class LazyGraph {
 
 
 	calcVertex(vertexName) {
+		// {vertex : true} if algorith was here
+		this.flagGraph = {...this.graph};
+		for (var prop in this.graph) {
+			this.flagGraph[prop] = false;
+		}
+
 		function solver(key, depth) {
 			// if value of this vertex is estimated => return it
-			if(typeof this.ans_graph[key] !== "undefined"){
-				return this.ans_graph[key];
-			}
-			// catching cycle error
-			if (depth > Object.keys(this.graph).length){
-				throw new Error('Cycle!!!');
+			if(typeof this.ansGraph[key] !== "undefined"){
+				return this.ansGraph[key];
+			} else {
+				// if this vertex is visited catching cycle error
+				if (this.flagGraph[key]){
+					// deep search
+					let loopSearch = function(currentVert, trace, toSearch){
+						// if we came to initial vertex => error with trace
+						if (trace.length != 0 && currentVert === toSearch) {
+							throw new Error("Loop " + trace.join(" -> "));
+						}
+						else {
+							for (let i = 0; i < this.argsGraph[currentVert].length; i++){
+								let v = this.argsGraph[currentVert][i];
+								trace.push(currentVert);
+								loopSearch.call(this, v, trace, toSearch);
+								trace.pop();
+							}
+						}
+					}
+					loopSearch.call(this, key, [], key, 0);
+				} else {
+					this.flagGraph[key] = true;
+				}
 			}
 			// if we have function without arguments => return its output
-			if (this.args_graph[key].length == 0){
+			if (this.argsGraph[key].length == 0){
 				return this.graph[key]();
 			} else {
 				var argums = [];
 				// contain values of function arguments in array
-				for (let i = 0; i < this.args_graph[key].length; i++) {
-					let argument = this.args_graph[key][i];
+				for (let i = 0; i < this.argsGraph[key].length; i++) {
+					let argument = this.argsGraph[key][i];
 					// recursive call if argument is undefined
-					this.ans_graph[argument] = solver.call(this, argument, depth + 1);
-					argums.push(this.ans_graph[argument]);
+					this.ansGraph[argument] = solver.call(this, argument, depth + 1);
+					argums.push(this.ansGraph[argument]);
 				}
 				// estimation of required vertex (argument)
 				return this.graph[key].apply(this, argums);
 			}
 		}
-		let estimated_vertex = solver.call(this, vertexName, 0);
-		// console.log(vertexName, "=", estimated_vertex)
-		return estimated_vertex;
+		let estimatedVertex = solver.call(this, vertexName, 0);
+		// console.log(vertexName, "=", estimatedVertex)
+		return estimatedVertex;
 	}
 }
-
 
 const myAmazingGraph = {
   n: (xs) => xs.length,
@@ -68,10 +89,11 @@ const myAmazingGraph = {
   m2: (xs, n) => xs.reduce((store, item) => item * store, 1) / n,
   v: (m, m2) => m*m - m2,
   xs: () => [1, 2, 3]
-};
+}
 
 // test lazy
-console.log((new LazyGraph()).receiveGraph(myAmazingGraph).calcVertex('m2'))
+console.log("Lazy test (correct graph):")
+console.log((new LazyGraph()).receiveGraph(myAmazingGraph).calcVertex('n'))
 
 
 // ====================
@@ -85,9 +107,20 @@ class EagerGraph extends LazyGraph {
 		return this;
 	}
 	calcVertex(vertexName) {
-		return this.ans_graph[vertexName];
+		return this.ansGraph[vertexName];
 	}
 }
 
 // test eager
+console.log("Eager test (correct graph):")
 console.log((new EagerGraph()).receiveGraph(myAmazingGraph).calcVertex('m2'))
+
+const myLoopedGraph = {
+	a: () => 1,
+	b: (z) => z,
+	z: (x) => x,
+	x: (b) => b
+};
+
+console.log("Eager/lazy test (cecle dependency):")
+console.log((new EagerGraph()).receiveGraph(myLoopedGraph).calcVertex('x'))
